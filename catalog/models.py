@@ -1,53 +1,54 @@
 from django.db import models
-from django.contrib.auth.models import User
+from django.conf import settings
 from django.utils import timezone
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 
 class Item(models.Model):
-    CATEGORY_CHOICES = [
-        ('BOOK', 'Book'),
-        ('VIDEO', 'Video'),
-        ('GAME', 'Game'),
-    ]
-    
     title = models.CharField(max_length=200)
-    category = models.CharField(max_length=5, choices=CATEGORY_CHOICES, default='BOOK')
-    is_borrowed = models.BooleanField(default=False)
-    
-    def __str__(self):
-        return self.title
-
-class BorrowRecord(models.Model):
-    item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name='borrow_records')
-    borrower = models.ForeignKey(User, on_delete=models.CASCADE, related_name='borrow_records')
-    borrow_date = models.DateField(default=timezone.now)
-    return_date = models.DateField(null=True, blank=True)
-
-    def __str__(self):
-        return f'{self.item.title} borrowed by {self.borrower.username}'
-
+    description = models.TextField(default="No description available.")  # Set a default at the base class level
     class Meta:
-        ordering = ['-borrow_date']
+        abstract = True
 
 class Book(Item):
     author = models.CharField(max_length=100)
-    publish_date = models.DateField(null=True, blank=True)
-    ISBN = models.CharField(max_length=13, unique=True, null=True, blank=True)
-
-    def __str__(self):
-        return f'{self.title} by {self.author}'
+    publisher = models.CharField(max_length=100)
+    book_type = models.CharField(max_length=100, help_text="Enter the book category (e.g., Fiction, Non-Fiction, Science, etc.)", default="General")
 
 class Video(Item):
     director = models.CharField(max_length=100)
-    release_year = models.IntegerField(null=True, blank=True)
-    duration_minutes = models.IntegerField(null=True, blank=True)
-
-    def __str__(self):
-        return f'{self.title} directed by {self.director}'
+    release_year = models.IntegerField()
+    video_type = models.CharField(max_length=100, help_text="Enter the video category (e.g., Movie, Documentary, Series, etc.)", default="General")
 
 class Game(Item):
     platform = models.CharField(max_length=100)
-    genre = models.CharField(max_length=50)
-    release_year = models.IntegerField(null=True, blank=True)
+    genre = models.CharField(max_length=100) 
+    game_type = models.CharField(max_length=100, help_text="Enter the game category (e.g., Action, Sports, etc.)", default="General")
+
+class UserProfile(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile')
+    phone = models.CharField(max_length=20, blank=True, null=True, help_text="Enter phone number")
+    address = models.TextField(blank=True, null=True, help_text="Enter address")
 
     def __str__(self):
-        return f'{self.title} on {self.platform}'
+        return self.user.username
+
+class BorrowRecord(models.Model):
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    item = GenericForeignKey('content_type', 'object_id')
+    borrower = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='borrowed_items')
+    borrow_date = models.DateTimeField(default=timezone.now)
+    return_date = models.DateTimeField(null=True, blank=True)
+
+    def days_until_return(self):
+        if not self.return_date:
+            return 'Return date not set'
+        now = timezone.now()
+        if self.return_date > now:
+            return (self.return_date - now).days
+        return 'Past due'
+
+    def __str__(self):
+        item_title = self.item.title if self.item else 'Item deleted'
+        return f'{item_title} borrowed by {self.borrower.user.username} on {self.borrow_date.strftime("%Y-%m-%d")}'
